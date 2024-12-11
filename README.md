@@ -11,4 +11,4 @@ The dataset is sourced from [RFNet](https://github.com/dyh127/RFNet).
 
 3.To evaluate a specific model weight, run ```bash eval.sh```.
 
-If you want to generate a difference image separately, modify the datapath in line 9 of ```create_diff.py``` after obtaining the dataset, then run ```python create_diff.py```. The difference image will be available in the ```diff``` folder within the dataset directory.
+4.If you want to generate a difference image separately, modify the datapath in line 9 of ```create_diff.py``` after obtaining the dataset, then run ```python create_diff.py```. The difference image will be available in the ```diff``` folder within the dataset directory.
