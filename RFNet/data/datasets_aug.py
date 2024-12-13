@@ -61,48 +61,47 @@ class Brats_loadall_nii_mixup(Dataset):
         print("length of ORG training set is {}".format(self.len_of_org))
         print("length of AUG training set is {}".format(len(self.volpaths)))
 
-    def aug_fun(self, x1, y1, x2, y2):
-        H1,W1,Z1 = y1.shape                      
-        H2,W2,Z2 = y2.shape
-
-        H = max(H1,H2)  
-        W = max(W1,W2)
-        Z = max(Z1,Z2)
-
-        s1 = (H-H1)//2              
-        s2 = (W-W1)//2
-        s3 = (Z-Z1)//2
-
-        t1 = (H-H2)//2
-        t2 = (W-W2)//2
-        t3 = (Z-Z2)//2
-
-        new_x = np.zeros([H,W,Z, x1.shape[3]]).astype(np.float32)
-        new_y1 = np.zeros([H,W,Z]).astype(np.int64)
-        new_y1[s1:s1+H1,s2:s2+W1,s3:s3+Z1] = y1    
-        
-        new_x.fill(x1.min())  
-        new_x[s1:s1+H1,s2:s2+W1,s3:s3+Z1,:] = x1*0.5
-        new_x[t1:t1+H2,t2:t2+W2,t3:t3+Z2,0] += x2[:,:,:,0]*0.5
-        new_x[t1:t1+H2,t2:t2+W2,t3:t3+Z2,1] += x2[:,:,:,1]*0.5
-        new_x[t1:t1+H2,t2:t2+W2,t3:t3+Z2,2] += x2[:,:,:,2]*0.5
-        new_x[t1:t1+H2,t2:t2+W2,t3:t3+Z2,3] += x2[:,:,:,3]*0.5
-
-        
-        for i in range(0,H2):
-            for j in range(0,W2):
-                for k in range(0,Z2):
-                    m = 0                                           #BG
-                    if 3 in [new_y1[t1+i,t2+j,t3+k],y2[i,j,k]]:     #ET
-                        m = 3
-                    elif 1 in [new_y1[t1+i,t2+j,t3+k],y2[i,j,k]]:   #NCR/NET
-                        m = 1
-                    elif 2 in [new_y1[t1+i,t2+j,t3+k],y2[i,j,k]]:   #ED
-                        m = 2
-                    new_y1[t1+i,t2+j,t3+k] = m
-        new_x = new_x[s1:s1+H1,s2:s2+W1,s3:s3+Z1,:]             
-        new_y1 = new_y1[s1:s1+H1,s2:s2+W1,s3:s3+Z1]                
-
+    def aug_fun(self, x, y1, diff, y2):
+        H1, W1, Z1 = y1.shape                      
+        H2, W2, Z2 = y2.shape
+    
+        H = max(H1, H2)  # 取较大者，防止边界溢出
+        W = max(W1, W2)
+        Z = max(Z1, Z2)
+    
+        s1 = (H - H1) // 2              
+        s2 = (W - W1) // 2
+        s3 = (Z - Z1) // 2
+    
+        t1 = (H - H2) // 2
+        t2 = (W - W2) // 2
+        t3 = (Z - Z2) // 2
+    
+        new_x = np.full([H, W, Z, x.shape[3]], x.min(), dtype=np.float32)
+        new_y1 = np.zeros([H, W, Z], dtype=np.int64)
+        new_y2 = (y2 > 0).astype(np.int64)  # 将添加差分图像的GT中大于0的值取1，方便做乘法
+    
+        new_y1[s1:s1 + H1, s2:s2 + W1, s3:s3 + Z1] = y1  # 装载原始图像GT
+    
+        new_x[s1:s1 + H1, s2:s2 + W1, s3:s3 + Z1, :] = x
+        new_x[t1:t1 + H2, t2:t2 + W2, t3:t3 + Z2, 0] += diff[..., 0] * new_y2.astype(np.float32)
+        new_x[t1:t1 + H2, t2:t2 + W2, t3:t3 + Z2, 1] += diff[..., 1] * new_y2.astype(np.float32)
+        new_x[t1:t1 + H2, t2:t2 + W2, t3:t3 + Z2, 2] += diff[..., 2] * new_y2.astype(np.float32)
+        new_x[t1:t1 + H2, t2:t2 + W2, t3:t3 + Z2, 3] += diff[..., 3] * new_y2.astype(np.float32)
+    
+        # 使用NumPy的矢量化操作来替换嵌套的for循环，按照3 > 1 > 2 > 0的优先级保留
+        combined_y1_y2 = np.stack([new_y1[t1:t1 + H2, t2:t2 + W2, t3:t3 + Z2], y2], axis=-1)
+        m = np.zeros_like(new_y1[t1:t1 + H2, t2:t2 + W2, t3:t3 + Z2])
+    
+        m[(combined_y1_y2 == 3).any(axis=-1)] = 3
+        m[(combined_y1_y2 == 1).any(axis=-1) & (m == 0)] = 1
+        m[(combined_y1_y2 == 2).any(axis=-1) & (m == 0)] = 2
+    
+        new_y1[t1:t1 + H2, t2:t2 + W2, t3:t3 + Z2] = m
+    
+        new_x = new_x[s1:s1 + H1, s2:s2 + W1, s3:s3 + Z1, :]  # 移除padding
+        new_y1 = new_y1[s1:s1 + H1, s2:s2 + W1, s3:s3 + Z1]  # 移除padding
+    
         return new_x, new_y1
 
     def __getitem__(self, index):
